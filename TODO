@@ -1,4 +1,7 @@
-- Test with other data types: numbers, booleans, nulls, ...
+- Nice error message when attempting to use procedures that need a primary key without one.
+- How to read/write time values, for example srfi-19 times?
+  We may add a column type definition in define-database-record-mapping macro?
+- Test with other values: integers, doubles, #t, blobs (bytevector), what else?
 - Avoid the extra round trip with 'CREATE TABLE',
   call only when necessary, or call together with the statement.
 - Wrap updates into a transaction.

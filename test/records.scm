@@ -48,6 +48,9 @@
     (assert (equal? alice (get-user #:email "alice@example.com" #:fullname "Alice Brown")))
     (assert (equal? #f (get-user #:email "alice@example.com" #:fullname "Bob Marley")))
     (assert (equal? alice (get-user alice))))
+  (test add-get-null
+    (add-user #:username "bob")
+    (assert (equal? (make-user "bob" #f #f) (get-user #:fullname #f))))
   (test update-user
     (add-user "alice" "Alice Brown" "alice@example.com")
     (test id-keys
@@ -61,7 +64,10 @@
       (assert (equal? "alice@gmail.com" (user-email (get-user "alice")))))
     (test record-record
       (update-user alice (make-user "alice" "Alice Brown" "alice@gmail.com"))
-      (assert (equal? "alice@gmail.com" (user-email (get-user "alice"))))))
+      (assert (equal? "alice@gmail.com" (user-email (get-user "alice")))))
+    (test null
+      (update-user "alice" #:fullname #f)
+      (assert (equal? (make-user "alice" #f "alice@example.com") (get-user "alice")))))
   (test remove-user
     (add-user alice)
     (test remove-id
@@ -71,11 +77,16 @@
       (remove-user alice)
       (assert (equal? #f (get-user "alice")))))
   (test list-users
-    (define bob (add-user "bob" "" "bob@example.com"))
-    (define charlie (add-user "charlie" "" "charlie@example.com"))
-    (assert (equal? (list) (list-users #:email "denis@example.com")))
-    (assert (equal? (list bob) (list-users #:email "bob@example.com")))
-    (assert (lset= equal? (list bob charlie) (list-users #:fullname "")))))
+    (test list-users
+      (define bob (add-user "bob" "" "bob@example.com"))
+      (define charlie (add-user "charlie" "" "charlie@example.com"))
+      (assert (equal? (list) (list-users #:email "denis@example.com")))
+      (assert (equal? (list bob) (list-users #:email "bob@example.com")))
+      (assert (lset= equal? (list bob charlie) (list-users #:fullname ""))))
+    (test null
+      (define bob (add-user "bob" #f #f))
+      (define charlie (add-user "charlie" #f #f))
+      (assert (lset= equal? (list bob charlie) (list-users #:fullname #f))))))
 
 ; test the mapping without a primary key
 
@@ -95,5 +106,5 @@
 
 (test no-primary-key
   (assert (throws-exception (get-user-role "alice")))
-  (assert (throws-exception (update-user "alice" #:role "editor"))))
+  (assert (throws-exception (update-user-role "alice" #:role "editor"))))
 

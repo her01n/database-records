@@ -142,6 +142,12 @@
       (sqlite-step delete)
       (sqlite-finalize delete))))
 
+(define (bind-values select n values)
+  (match values
+    (((key . #f) . tail) (bind-values select n tail))
+    (((key . value) . tail) (sqlite-bind select n value) (bind-values select (+ 1 n) tail))
+    (() #f)))
+
 (define (create-list mapping)
   (lambda args
     (define alist (args->alist mapping args))
@@ -155,15 +161,15 @@
         (mapping-table mapping)
         (string-join
           (map 
-            (lambda (pair) (format #f "~a = ?" (symbol->sql-string (car pair))))
+            (lambda (pair) 
+              (if (cdr pair)
+                  (format #f "~a = ?" (symbol->sql-string (car pair)))
+                  (format #f "~a IS NULL" (symbol->sql-string (car pair)))))
             alist)
           " AND ")))
     (create-table mapping)
     (let ((select (sqlite-prepare database select-sql)))
-      (map
-        (lambda (n pair) (sqlite-bind select (+ 1 n) (cdr pair)))
-        (iota (length alist)) 
-        alist)
+      (bind-values select 1 alist)
       (let ((result (sqlite-map (lambda (row) (apply constructor (vector->list row))) select)))
         (sqlite-finalize select)
         result))))
