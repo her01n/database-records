@@ -1,0 +1,5 @@
+- Test with other data types: numbers, booleans, nulls, ...
+- Avoid the extra round trip with 'CREATE TABLE',
+  call only when necessary, or call together with the statement.
+- Wrap updates into a transaction.
+- Create helper method 'call-with-prepared-statement' to finalize the statement automatically.
