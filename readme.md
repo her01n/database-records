@@ -114,3 +114,10 @@ Currently we support only guile-sqlite3 database module.
      or all records if no values are specified.
      Returns empty list if not records match.
 
+## Requirements
+
+- guile-sqlite3
+
+  Debian has 'guile-sqlite3' package.
+  Web page: https://notabug.org/guile-sqlite3/guile-sqlite3
+
