@@ -5,6 +5,9 @@ default: .tested
 	hdt
 	touch $@
 
+clean:
+	rm -rf .tested
+
 GUILE ?= guile
 
 GUILE_SITE_DIR ?= $(shell $(GUILE) -c "(display (%site-dir)) (newline)")
