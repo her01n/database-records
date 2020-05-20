@@ -78,11 +78,13 @@
       (assert (equal? #f (get-user "alice")))))
   (test list-users
     (test list-users
+      (define alice (add-user "alice" "Alice Brown" "alice@example.com"))
       (define bob (add-user "bob" "" "bob@example.com"))
       (define charlie (add-user "charlie" "" "charlie@example.com"))
       (assert (equal? (list) (list-users #:email "denis@example.com")))
       (assert (equal? (list bob) (list-users #:email "bob@example.com")))
-      (assert (lset= equal? (list bob charlie) (list-users #:fullname ""))))
+      (assert (lset= equal? (list bob charlie) (list-users #:fullname "")))
+      (assert (lset= equal? (list alice bob charlie) (list-users))))
     (test null
       (define bob (add-user "bob" #f #f))
       (define charlie (add-user "charlie" #f #f))

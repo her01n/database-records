@@ -150,13 +150,13 @@
 
 (define (create-list mapping)
   (lambda args
-    (define alist (args->alist mapping args))
+    (define alist (if (null? args) args (args->alist mapping args)))
     (define record-type (mapping-record-type mapping))
     (define fields (record-type-fields record-type))
     (define constructor (record-constructor record-type))
     (define select-sql
       (format #f
-        "SELECT ~a FROM ~a WHERE ~a;"
+        (if (pair? alist) "SELECT ~a FROM ~a WHERE ~a;" "SELECT ~a FROM ~a;")
         (string-join (mapping-columns mapping) ", ")
         (mapping-table mapping)
         (string-join
