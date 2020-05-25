@@ -131,22 +131,38 @@
           (sqlite-finalize insert)))
       values)))
 
-(define (create-remove mapping)
-  (lambda (arg)
-    (define id (arg->id mapping arg))
-    (define delete-sql
-      (format #f "DELETE FROM ~a WHERE ~a = ?;" (mapping-table mapping) (mapping-primary-key mapping)))
-    (create-table mapping)
-    (let ((delete (sqlite-prepare database delete-sql)))
-      (sqlite-bind delete 1 id)
-      (sqlite-step delete)
-      (sqlite-finalize delete))))
-
+(define (generate-where alist)
+  (if
+    (null? alist)
+    ""
+    (format #f "WHERE ~a"
+      (string-join
+        (map 
+          (lambda (pair) 
+            (if (cdr pair)
+                (format #f "~a = ?" (symbol->sql-string (car pair)))
+                (format #f "~a IS NULL" (symbol->sql-string (car pair)))))
+          alist)
+        " AND "))))
+    
 (define (bind-values select n values)
   (match values
     (((key . #f) . tail) (bind-values select n tail))
     (((key . value) . tail) (sqlite-bind select n value) (bind-values select (+ 1 n) tail))
     (() #f)))
+
+(define (create-remove mapping)
+  (lambda args
+    (define alist (if (null? args) args (args->alist mapping args)))
+    (define delete-sql
+      (format #f "DELETE FROM ~a ~a;"
+        (mapping-table mapping)
+        (generate-where alist)))
+    (create-table mapping)
+    (let ((delete (sqlite-prepare database delete-sql)))
+      (bind-values delete 1 alist)
+      (sqlite-step delete)
+      (sqlite-finalize delete))))
 
 (define (create-list mapping)
   (lambda args
@@ -155,18 +171,10 @@
     (define fields (record-type-fields record-type))
     (define constructor (record-constructor record-type))
     (define select-sql
-      (format #f
-        (if (pair? alist) "SELECT ~a FROM ~a WHERE ~a;" "SELECT ~a FROM ~a;")
+      (format #f "SELECT ~a FROM ~a ~a;"
         (string-join (mapping-columns mapping) ", ")
         (mapping-table mapping)
-        (string-join
-          (map 
-            (lambda (pair) 
-              (if (cdr pair)
-                  (format #f "~a = ?" (symbol->sql-string (car pair)))
-                  (format #f "~a IS NULL" (symbol->sql-string (car pair)))))
-            alist)
-          " AND ")))
+        (generate-where alist)))
     (create-table mapping)
     (let ((select (sqlite-prepare database select-sql)))
       (bind-values select 1 alist)

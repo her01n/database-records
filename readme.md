@@ -81,12 +81,15 @@ Currently we support only guile-sqlite3 database module.
       When *id* is an instance of record type, only the value of primary key is considered,
       other fields are ignored.
 
-  - **remove-record id**
+  - **remove-records id**
+    **remove-records [#:field *value* ...]**
 
-     Remove a row with a primary key.
-     *id* is either the value of the primary key, or isntance of the record type.
+     If one argument is specified, remove the row with this primary key.
      When *id* is an instance of record type, only the value of primary key is considered,
      other fields are ignored.
+
+     If multiple arguments are specified, remove all rows that match all the specified values.
+     In case no argument is specified, remove all rows from this table.
 
   - **get-record**
 

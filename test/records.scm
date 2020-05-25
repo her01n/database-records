@@ -75,7 +75,14 @@
       (assert (equal? #f (get-user "alice"))))
     (test remove-record
       (remove-user alice)
-      (assert (equal? #f (get-user "alice")))))
+      (assert (equal? #f (get-user "alice"))))
+    (test remove-by-values
+      (add-user "bob" "" "bob@asdf.com")
+      (add-user "charlie" "" "charlie@cfactory.com")
+      (remove-user #:fullname "")
+      (assert (get-user "alice"))
+      (assert (not (get-user "bob")))
+      (assert (not (get-user "charlie")))))
   (test list-users
     (test list-users
       (define alice (add-user "alice" "Alice Brown" "alice@example.com"))
