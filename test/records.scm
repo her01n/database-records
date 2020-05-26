@@ -36,7 +36,10 @@
       (assert (equal? alice (get-user "alice"))))
     (test record
       (assert (equal? alice (add-user alice)))
-      (assert (equal? alice (get-user "alice")))))
+      (assert (equal? alice (get-user "alice"))))
+    (test primary-key
+      (add-user "alice" "Alice Brown" "alice@example.com")
+      (assert (throws-exception (add-user "alice" "Alice Bianco" "alice@gmail.com")))))
   (test get-user
     (assert (equal? #f (get-user "alice")))
     (assert (equal? #f (get-user #:email "alice@example.com")))

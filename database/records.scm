@@ -40,11 +40,17 @@
   (map symbol->sql-string (record-type-fields (mapping-record-type mapping))))
 
 (define (create-table mapping)
+  (define (constrained-column field)
+    (string-append
+      (symbol->sql-string field)
+      (if (equal? field (mapping-primary-key mapping)) " PRIMARY KEY" "")))
   (sqlite-exec database
     (format #f 
       "CREATE TABLE IF NOT EXISTS ~a (~a);" 
       (mapping-table mapping) 
-      (string-join (mapping-columns mapping) ", "))))
+      (string-join
+        (map constrained-column (record-type-fields (mapping-record-type mapping)))
+        ", "))))
 
 (define* (keys->alist keys #:optional (alist '()))
   (match keys
