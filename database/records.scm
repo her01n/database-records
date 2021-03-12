@@ -65,59 +65,62 @@
         (map constrained-column (record-type-fields (mapping-record-type mapping)))
         ", "))))
 
+(define (record->full-values mapping record)
+  (map
+    (lambda (field) (cons field ((record-accessor (mapping-record-type mapping) field) record)))
+    (fields mapping)))
+
+(define (record->primary-values mapping record)
+  (define primary (mapping-primary-key mapping))
+  (list
+    (cons primary ((record-accessor (mapping-record-type mapping) primary) record))))
+
+(define (keywords->values mapping args)
+  (match args
+    (() '())
+    ((keyword value . tail)
+     (cons (cons (keyword->symbol keyword) value) (keywords->values mapping tail)))))
+
+(define (list->values mapping list)
+  (map
+    (lambda (key value) (cons key value))
+    (fields mapping) list))
+
+(define (arguments->values record->values mapping args)
+  (match args
+    (() '())
+    (((? (record-predicate (mapping-record-type mapping)) record))
+     (record->values mapping record))
+    ((id) (list (cons (mapping-primary-key mapping) id)))
+    (((? keyword? key) value . tail) (keywords->values mapping args))
+    (else (list->values mapping args))))
+
+(define (arguments->full-values mapping args) (arguments->values record->full-values mapping args))
+
+(define (arguments->primary-values mapping args)
+  (arguments->values record->primary-values mapping args))
+
 (define (value->primitive type value)
   (if (and type ((record-predicate (mapping-record-type type)) value))
       ((record-accessor (mapping-record-type type) (mapping-primary-key type)) value)
       value))
 
-(define (record->full-primitives mapping record)
-  (map
-    (lambda (field) (cons field ((record-accessor (mapping-record-type mapping) field) record)))
-    (fields mapping)))
-  
-(define (record->primary-primitives mapping record)
-  (define primary (mapping-primary-key mapping))
-  (list
-    (cons primary ((record-accessor (mapping-record-type mapping) primary) record))))
-
-(define (keywords->primitives mapping args)
-  (match args
-    (() '())
-    ((keyword value . tail)
-     (let* ((key (keyword->symbol keyword))
-            (type (assoc-ref (map cons (fields mapping) (mapping-types mapping)) key))) 
-       (cons
-         (cons key (value->primitive type value))
-         (keywords->primitives mapping tail))))))
-
 (define (values->primitives mapping values)
+  (define types (map cons (fields mapping) (mapping-types mapping)))
   (map
-    (lambda (key type value) (cons key (value->primitive type value)))
-    (fields mapping) (mapping-types mapping) values))
-
-(define (arguments->primitives record->primitives mapping args)
-  (match args
-    (() '())
-    (((? (record-predicate (mapping-record-type mapping)) record))
-     (record->primitives mapping record))
-    ((id) (list (cons (mapping-primary-key mapping) id)))
-    (((? keyword? key) value . tail) (keywords->primitives mapping args))
-    (else (values->primitives mapping args))))
+    (lambda (pair) (cons (car pair) (value->primitive (assoc-ref types (car pair)) (cdr pair))))
+    values))
 
 (define (arguments->full-primitives mapping args)
-  (arguments->primitives record->full-primitives mapping args))
+  (values->primitives mapping (arguments->full-values mapping args)))
 
 (define (arguments->primary-primitives mapping args)
-  (arguments->primitives record->primary-primitives mapping args))
-
-(define (primitives->values mapping primitives)
-  (map
-    (lambda (field) (assoc-ref primitives field))
-    (fields mapping)))
+  (values->primitives mapping (arguments->primary-values mapping args)))
 
 (define (create-add mapping)
   (lambda args
-    (define primitives (arguments->full-primitives mapping args))
+    (define values (arguments->full-values mapping args))
+    (define primitives (values->primitives mapping values))
     (define insert-sql
       (format #f
         "INSERT INTO ~a (~a) VALUES (~a)"
@@ -131,7 +134,9 @@
         (iota (length primitives)) primitives)
       (sqlite-step insert)
       (sqlite-finalize insert))
-    (apply (record-constructor (mapping-record-type mapping)) (primitives->values mapping primitives))))
+    (apply
+      (record-constructor (mapping-record-type mapping))
+      (map (lambda (field) (assoc-ref values field)) (fields mapping)))))
 
 (define (arg->id mapping arg)
   (define record? (record-predicate (mapping-record-type mapping)))

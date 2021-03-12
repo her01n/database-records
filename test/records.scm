@@ -147,7 +147,8 @@
     (add-log 1 alice now "login")
     (assert (equal? alice (log-user (get-log #:user alice)))))
   (test add
-    (add-log 2 alice now "logout")
+    (define log (add-log 2 alice now "logout"))
+    (assert (equal? alice (log-user log)))
     (assert (equal? alice (log-user (get-log #:user "alice")))))
   (test update
     (add-log 3 alice now "edit")
