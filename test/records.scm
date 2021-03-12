@@ -18,10 +18,13 @@
 (define-database-record-mapping <user> #:primary-key 'username
   add-user update-user remove-user get-user list-users)
 
-(test
-  ; All tests start a with a fresh database
+; Start tests with a fresh database
+(define (setup)
   (system "rm -rf test.sqlite3")
-  (set-database (sqlite-open "test.sqlite3" (logior SQLITE_OPEN_CREATE SQLITE_OPEN_READWRITE)))
+  (set-database (sqlite-open "test.sqlite3" (logior SQLITE_OPEN_CREATE SQLITE_OPEN_READWRITE))))
+
+(test
+  (setup)
   (define alice (make-user "alice" "Alice Brown" "alice@example.com"))
   (test add-user
     (assert (equal? #f (get-user "alice")))
@@ -120,3 +123,38 @@
   (assert (throws-exception (get-user-role "alice")))
   (assert (throws-exception (update-user-role "alice" #:role "editor"))))
 
+(define-record-type <log>
+  (make-log id user time action)
+  log?
+  (id log-id)
+  (user log-user)
+  (time log-time)
+  (action log-action))
+
+(define-database-record-mapping <log>
+  #:primary-key 'id (user <user>)
+  add-log update-log remove-log get-log list-logs)
+
+(test linked-table
+  (setup)
+  (define alice (add-user "alice" "Alice Brown" "alice@example.com"))
+  (define bob (add-user "bob" "Robert Red" "robert@example.com"))
+  (define now (current-time))
+  (test get
+    (add-log 0 "alice" now "login")
+    (assert (equal? alice (log-user (get-log #:user "alice")))))
+  (test select
+    (add-log 1 alice now "login")
+    (assert (equal? alice (log-user (get-log #:user alice)))))
+  (test add
+    (add-log 2 alice now "logout")
+    (assert (equal? alice (log-user (get-log #:user "alice")))))
+  (test update
+    (add-log 3 alice now "edit")
+    (update-log 3 #:user bob)
+    (assert (equal? bob (log-user (get-log 3)))))
+  (test remove
+    (add-log 4 alice now "edit")
+    (remove-log #:user alice)
+    (assert (not (get-log 4)))))
+    

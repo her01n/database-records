@@ -1,3 +1,4 @@
+- Automatically check the code style - some procedures are too long for example
 - Nice error message when attempting to use procedures that need a primary key without one.
 - How to read/write time values, for example srfi-19 times?
   We may add a column type definition in define-database-record-mapping macro?

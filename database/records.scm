@@ -14,7 +14,7 @@
   ; TODO close current database?
   (set! database database'))
 
-(define (symbol->sql-string symbol)
+(define (symbol->sql symbol)
   (list->string
     (filter identity
       (map
@@ -28,85 +28,110 @@
         (string->list (symbol->string symbol))))))
 
 (define-record-type <mapping>
-  (make-mapping record-type primary-key)
+  (make-mapping record-type primary-key types)
   mapping?
-  (record-type   mapping-record-type)
-  (primary-key   mapping-primary-key))
+  (record-type mapping-record-type)
+  (primary-key mapping-primary-key)
+  (types mapping-types))
 
-(define (mapping-table mapping)
-  (symbol->sql-string (record-type-name (mapping-record-type mapping))))
+(define mappings '())
 
-(define (mapping-columns mapping)
-  (map symbol->sql-string (record-type-fields (mapping-record-type mapping))))
+(define (map-record-type record-type primary-key field-types)
+  (define types
+    (map
+      (lambda (field) (assoc-ref mappings (assoc-ref field-types field)))
+      (record-type-fields record-type)))
+  (define mapping (make-mapping record-type primary-key types))
+  (set! mappings (cons (cons record-type mapping) mappings))
+  mapping)
+
+(define (fields mapping) (record-type-fields (mapping-record-type mapping)))
+
+(define (table mapping)
+  (symbol->sql (record-type-name (mapping-record-type mapping))))
+
+(define (columns mapping) (map symbol->sql (fields mapping)))
 
 (define (create-table mapping)
   (define (constrained-column field)
     (string-append
-      (symbol->sql-string field)
+      (symbol->sql field)
       (if (equal? field (mapping-primary-key mapping)) " PRIMARY KEY" "")))
   (sqlite-exec database
     (format #f 
       "CREATE TABLE IF NOT EXISTS ~a (~a);" 
-      (mapping-table mapping) 
+      (table mapping) 
       (string-join
         (map constrained-column (record-type-fields (mapping-record-type mapping)))
         ", "))))
 
-(define* (keys->alist keys #:optional (alist '()))
-  (match keys
-    (() alist)
-    ((key value . tail)
-     (keys->alist tail (cons (cons (keyword->symbol key) value) alist)))))
+(define (value->primitive type value)
+  (if (and type ((record-predicate (mapping-record-type type)) value))
+      ((record-accessor (mapping-record-type type) (mapping-primary-key type)) value)
+      value))
 
-(define (record->alist record-type value)
+(define (record->full-primitives mapping record)
   (map
-    (lambda (key) (cons key ((record-accessor record-type key) value)))
-    (record-type-fields record-type)))
+    (lambda (field) (cons field ((record-accessor (mapping-record-type mapping) field) record)))
+    (fields mapping)))
+  
+(define (record->primary-primitives mapping record)
+  (define primary (mapping-primary-key mapping))
+  (list
+    (cons primary ((record-accessor (mapping-record-type mapping) primary) record))))
 
-(define (keys->values mapping keys)
-  (define alist (keys->alist keys))
+(define (keywords->primitives mapping args)
+  (match args
+    (() '())
+    ((keyword value . tail)
+     (let* ((key (keyword->symbol keyword))
+            (type (assoc-ref (map cons (fields mapping) (mapping-types mapping)) key))) 
+       (cons
+         (cons key (value->primitive type value))
+         (keywords->primitives mapping tail))))))
+
+(define (values->primitives mapping values)
   (map
-    (lambda (key) (assoc-ref alist key)) 
-    (record-type-fields (mapping-record-type mapping))))
+    (lambda (key type value) (cons key (value->primitive type value)))
+    (fields mapping) (mapping-types mapping) values))
 
-(define (record->values mapping record)
+(define (arguments->primitives record->primitives mapping args)
+  (match args
+    (() '())
+    (((? (record-predicate (mapping-record-type mapping)) record))
+     (record->primitives mapping record))
+    ((id) (list (cons (mapping-primary-key mapping) id)))
+    (((? keyword? key) value . tail) (keywords->primitives mapping args))
+    (else (values->primitives mapping args))))
+
+(define (arguments->full-primitives mapping args)
+  (arguments->primitives record->full-primitives mapping args))
+
+(define (arguments->primary-primitives mapping args)
+  (arguments->primitives record->primary-primitives mapping args))
+
+(define (primitives->values mapping primitives)
   (map
-    (lambda (key) ((record-accessor (mapping-record-type mapping) key) record))
-    (record-type-fields (mapping-record-type mapping))))
-
-(define (add-values mapping . values)
-  (define record-type (mapping-record-type mapping))
-  (define insert-sql
-    (format #f
-      "INSERT INTO ~a (~a) VALUES (~a)"
-      (mapping-table mapping)
-      (string-join (mapping-columns mapping) ", ")
-      (string-join (map (const "?") (mapping-columns mapping)) ", ")))
-  (create-table mapping)
-  (let ((insert (sqlite-prepare database insert-sql)))
-    (map
-      (lambda (n value) (sqlite-bind insert (+ 1 n) value))
-      (iota (length values)) values)
-    (sqlite-step insert)
-    (sqlite-finalize insert))
-  (apply (record-constructor record-type) values))
+    (lambda (field) (assoc-ref primitives field))
+    (fields mapping)))
 
 (define (create-add mapping)
-  (define record-type (mapping-record-type mapping))
   (lambda args
-    (match args
-      (((? keyword? key) value . tail)
-       (apply add-values mapping (keys->values mapping args)))
-      (((? (record-predicate record-type) record))
-       (apply add-values mapping (record->values mapping record)))
-      ((? list? values) (apply add-values mapping values)))))
-
-(define (args->alist mapping args)
-  (define record-type (mapping-record-type mapping))
-  (match args
-    (((? keyword? key) value . tail) (keys->alist args))
-    (((? (record-predicate record-type) record)) (record->alist record-type record))
-    ((value) (list (cons (mapping-primary-key mapping) value)))))
+    (define primitives (arguments->full-primitives mapping args))
+    (define insert-sql
+      (format #f
+        "INSERT INTO ~a (~a) VALUES (~a)"
+        (table mapping)
+        (string-join (map symbol->sql (map car primitives)) ", ")
+        (string-join (map (const "?") primitives) ", ")))
+    (create-table mapping)
+    (let ((insert (sqlite-prepare database insert-sql)))
+      (map
+        (lambda (n pair) (sqlite-bind insert (+ 1 n) (cdr pair)))
+        (iota (length primitives)) primitives)
+      (sqlite-step insert)
+      (sqlite-finalize insert))
+    (apply (record-constructor (mapping-record-type mapping)) (primitives->values mapping primitives))))
 
 (define (arg->id mapping arg)
   (define record? (record-predicate (mapping-record-type mapping)))
@@ -114,28 +139,29 @@
     ((? record? arg) ((record-accessor (mapping-record-type mapping) (mapping-primary-key mapping)) arg))
     (value value)))
 
+; TODO can i do this in a single statement?
 (define (create-update mapping)
   (lambda (arg . args)
     (define id (arg->id mapping arg))
-    (define values (args->alist mapping args))
+    (define primitives (arguments->full-primitives mapping args))
     ; refuse to implicitly update primary key
-    (if (and (equal? 1 (length args)) (equal? 1 (length values)))
+    (if (and (equal? 1 (length args)) (equal? 1 (length primitives)))
         (throw 'misc-error "Unexpected argument: ~a" (car args)))
     (map
       (lambda (pair)
         (define update-sql
           (format #f
             "UPDATE ~a SET ~a = ? WHERE ~a = ?;"
-            (mapping-table mapping)
-            (symbol->sql-string (car pair))
-            (symbol->sql-string (mapping-primary-key mapping))))
+            (table mapping)
+            (symbol->sql (car pair))
+            (symbol->sql (mapping-primary-key mapping))))
         (create-table mapping)
         (let ((insert (sqlite-prepare database update-sql)))
           (sqlite-bind insert 1 (cdr pair))
           (sqlite-bind insert 2 id)
           (sqlite-step insert)
           (sqlite-finalize insert)))
-      values)))
+      primitives)))
 
 (define (generate-where alist)
   (if
@@ -146,8 +172,8 @@
         (map 
           (lambda (pair) 
             (if (cdr pair)
-                (format #f "~a = ?" (symbol->sql-string (car pair)))
-                (format #f "~a IS NULL" (symbol->sql-string (car pair)))))
+                (format #f "~a = ?" (symbol->sql (car pair)))
+                (format #f "~a IS NULL" (symbol->sql (car pair)))))
           alist)
         " AND "))))
     
@@ -159,32 +185,40 @@
 
 (define (create-remove mapping)
   (lambda args
-    (define alist (if (null? args) args (args->alist mapping args)))
+    (define primitives (arguments->primary-primitives mapping args))
     (define delete-sql
       (format #f "DELETE FROM ~a ~a;"
-        (mapping-table mapping)
-        (generate-where alist)))
+        (table mapping)
+        (generate-where primitives)))
     (create-table mapping)
     (let ((delete (sqlite-prepare database delete-sql)))
-      (bind-values delete 1 alist)
+      (bind-values delete 1 primitives)
       (sqlite-step delete)
       (sqlite-finalize delete))))
 
+; TODO use JOIN query instead of multiple queries in case of linked table
 (define (create-list mapping)
+  (define record-type (mapping-record-type mapping))
+  (define fields (record-type-fields record-type))
+  (define constructor (record-constructor record-type))
+  (define converters
+    (map
+      (lambda (type) (if (mapping? type) (lambda (value) ((create-get type) value)) identity))
+      (mapping-types mapping)))
   (lambda args
-    (define alist (if (null? args) args (args->alist mapping args)))
-    (define record-type (mapping-record-type mapping))
-    (define fields (record-type-fields record-type))
-    (define constructor (record-constructor record-type))
+    (define primitives (arguments->primary-primitives mapping args))
     (define select-sql
       (format #f "SELECT ~a FROM ~a ~a;"
-        (string-join (mapping-columns mapping) ", ")
-        (mapping-table mapping)
-        (generate-where alist)))
+        (string-join (columns mapping) ", ")
+        (table mapping)
+        (generate-where primitives)))
+    (define (read-row row)
+      (apply constructor
+        (map (lambda (converter value) (converter value)) converters (vector->list row))))
     (create-table mapping)
     (let ((select (sqlite-prepare database select-sql)))
-      (bind-values select 1 alist)
-      (let ((result (sqlite-map (lambda (row) (apply constructor (vector->list row))) select)))
+      (bind-values select 1 primitives)
+      (let ((result (sqlite-map read-row select)))
         (sqlite-finalize select)
         result))))
 
@@ -196,8 +230,7 @@
       ((row) row)
       (else (throw 'get-many "get returned more than one row")))))
 
-(define (create-mapping proc-symbol record-type primary)
-  (define mapping (make-mapping record-type primary))
+(define (map-procedure mapping proc-symbol)
   (define proc-name (symbol->string proc-symbol))
   (cond
     ((string-prefix? "add" proc-name) (create-add mapping))
@@ -206,14 +239,26 @@
     ((string-prefix? "get" proc-name) (create-get mapping))
     ((string-prefix? "list" proc-name) (create-list mapping))))
 
+(define mapping #f)
+  
 (define-syntax define-database-record-mapping
   (syntax-rules ()
-    ((define-database-record-mapping record-type #:primary-key primary) #f)
-    ((define-database-record-mapping record-type #:primary-key primary
-       proc proc* ...)
+    ((define-database-record-mapping #:mapping mapping) #f)
+    ((define-database-record-mapping #:mapping mapping proc procs* ...)
      (begin
-       (define proc (create-mapping 'proc record-type primary))
-       (define-database-record-mapping record-type #:primary-key primary proc* ...)))
-    ((define-database-record-mapping record-type proc* ...)
-     (define-database-record-mapping
-       record-type #:primary-key #f proc* ...))))
+       (define proc (map-procedure mapping (quote proc)))
+       (define-database-record-mapping #:mapping mapping procs* ...)))
+    ((define-database-record-mapping record-type #:primary-key primary #:fields (fields* ...)
+       (field type) args* ...)
+     (define-database-record-mapping record-type #:primary-key primary
+       #:fields (fields* ... (field type)) args* ...))
+    ((define-database-record-mapping record-type #:primary-key primary #:fields ((field type) ...) 
+       proc* ...)
+     (begin
+       (set! mapping (map-record-type record-type primary (list (cons (quote field) type) ...)))
+       (define-database-record-mapping #:mapping mapping proc* ...)))
+    ((define-database-record-mapping record-type #:primary-key primary args* ...)
+     (define-database-record-mapping record-type #:primary-key primary #:fields () args* ...))
+    ((define-database-record-mapping record-type args* ...)
+     (define-database-record-mapping record-type #:primary-key #f args* ...))))
+

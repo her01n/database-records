@@ -5,6 +5,7 @@ Currently we support only guile-sqlite3 database module.
 
 ## Example
 
+
     (use-modules (srfi srfi-9) (database records))
 
     (define-record-type <user>
@@ -46,9 +47,18 @@ Currently we support only guile-sqlite3 database module.
 
 - Macro
   **define-database-record-mapping *record-type* [#:primary-key *primary-key*]
+    [(field type) ...]
     [*add-record*] [*update-record*] [*remove-record*] [*get-record*] [*list-records*] **
 
   Defines database mappings for the record type.
+
+  If the type for a field is specified, create a 1:N mapping between this type and the field type.
+  Field type must be a record type with already defined mapping.
+  The field type mapping must have a primary key.
+  When the value for the type is specified,
+  it may be either the primitive value of the primary key, or the linked type instance.
+  Reading procedures (get..., list...) return the instance of the linked type as the field value.
+
   Mapping procedures may be listed in any order, and any one can be skipped.
   The function is associated to the procedure by the procedure name,
   Any procedure starting with "add" would be adder, and so on.
