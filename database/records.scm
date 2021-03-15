@@ -1,9 +1,9 @@
 (define-module (database records)
   #:export-syntax (define-database-record-mapping))
 
-(use-modules 
+(use-modules
   (ice-9 match)
-  (srfi srfi-9))
+  (srfi srfi-1) (srfi srfi-9))
 
 (use-modules (sqlite3))
 
@@ -39,9 +39,24 @@
 (define (map-record-type record-type primary-key field-types)
   (define types
     (map
-      (lambda (field) (assoc-ref mappings (assoc-ref field-types field)))
+      (lambda (field)
+        (define type (assoc-ref field-types field))
+        (define mapping (assoc-ref mappings type))
+        (cond
+          ((equal? 'rowid type) 'rowid)
+          (mapping mapping)
+          ((equal? #f type) #f)
+          (else (throw 'invalid-field-argument "Invalid argument for field ~a: ~a" field type))))
       (record-type-fields record-type)))
-  (define mapping (make-mapping record-type primary-key types))
+  (define actual-primary-key
+    (or
+      primary-key
+      (find identity
+        (map
+          (lambda (field type) (if (equal? type 'rowid) field #f))
+          (record-type-fields record-type)
+          types))))
+  (define mapping (make-mapping record-type actual-primary-key types))
   (set! mappings (cons (cons record-type mapping) mappings))
   mapping)
 
@@ -52,17 +67,27 @@
 
 (define (columns mapping) (map symbol->sql (fields mapping)))
 
+(define (rowid mapping)
+  (find identity
+    (map
+      (lambda (field type) (and (equal? 'rowid type) field))
+      (fields mapping)
+      (mapping-types mapping))))
+
 (define (create-table mapping)
-  (define (constrained-column field)
+  (define (constrained-column field type)
     (string-append
       (symbol->sql field)
-      (if (equal? field (mapping-primary-key mapping)) " PRIMARY KEY" "")))
+      (cond
+        ((equal? type 'rowid) " INTEGER PRIMARY KEY")
+        ((equal? field (mapping-primary-key mapping)) " PRIMARY KEY")
+        (else ""))))
   (sqlite-exec database
     (format #f 
       "CREATE TABLE IF NOT EXISTS ~a (~a);" 
       (table mapping) 
       (string-join
-        (map constrained-column (record-type-fields (mapping-record-type mapping)))
+        (map constrained-column (fields mapping) (mapping-types mapping))
         ", "))))
 
 (define (record->full-values mapping record)
@@ -101,7 +126,7 @@
   (arguments->values record->primary-values mapping args))
 
 (define (value->primitive type value)
-  (if (and type ((record-predicate (mapping-record-type type)) value))
+  (if (and (mapping? type) ((record-predicate (mapping-record-type type)) value))
       ((record-accessor (mapping-record-type type) (mapping-primary-key type)) value)
       value))
 
@@ -116,6 +141,24 @@
 
 (define (arguments->primary-primitives mapping args)
   (values->primitives mapping (arguments->primary-values mapping args)))
+
+(define (get-last-inserted-rowid mapping)
+  (define sql
+    (format #f
+      "SELECT ~a FROM ~a WHERE rowid = last_insert_rowid()"
+      (symbol->sql (rowid mapping)) (table mapping)))
+  (define select (sqlite-prepare database sql))
+  (define value
+    (first
+      (sqlite-map (lambda (row) (vector-ref row 0)) select)))
+  (sqlite-finalize select)
+  value)
+
+(define (fill-in-rowid mapping values)
+  (define id (rowid mapping))
+  (if (and id (not (assoc-ref values id)))
+    (cons (cons id (get-last-inserted-rowid mapping)) values)
+    values))
 
 (define (create-add mapping)
   (lambda args
@@ -134,9 +177,9 @@
         (iota (length primitives)) primitives)
       (sqlite-step insert)
       (sqlite-finalize insert))
-    (apply
-      (record-constructor (mapping-record-type mapping))
-      (map (lambda (field) (assoc-ref values field)) (fields mapping)))))
+    (let* ((values+id (fill-in-rowid mapping values))
+           (constructor (record-constructor (mapping-record-type mapping))))
+      (apply constructor (map (lambda (field) (assoc-ref values+id field)) (fields mapping))))))
 
 (define (arg->id mapping arg)
   (define record? (record-predicate (mapping-record-type mapping)))
@@ -244,6 +287,7 @@
     ((string-prefix? "get" proc-name) (create-get mapping))
     ((string-prefix? "list" proc-name) (create-list mapping))))
 
+; TODO at least make this a fluid
 (define mapping #f)
   
 (define-syntax define-database-record-mapping

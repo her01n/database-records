@@ -103,6 +103,24 @@
       (define charlie (add-user "charlie" #f #f))
       (assert (lset= equal? (list bob charlie) (list-users #:fullname #f))))))
 
+; test automatically assigned id
+
+(define-record-type <document>
+  (make-record id title content)
+  document?
+  (id document-id)
+  (title document-title)
+  (content document-content))
+
+(define-database-record-mapping <document> (id 'rowid)
+  add-document get-document)
+
+(test automatic-id
+  (setup)
+  (define document (add-document #:title "The Document" #:content "This is the content."))
+  (assert (number? (document-id document)))
+  (assert (equal? document (get-document (document-id document)))))
+
 ; test the mapping without a primary key
 
 (define-record-type <user-role>
@@ -122,6 +140,9 @@
 (test no-primary-key
   (assert (throws-exception (get-user-role "alice")))
   (assert (throws-exception (update-user-role "alice" #:role "editor"))))
+
+; TODO if the user attempts to link to a type that has no defined mapping, throw an exception
+; TODO the same if the linked mapping has no primary key
 
 (define-record-type <log>
   (make-log id user time action)
