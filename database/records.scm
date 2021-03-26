@@ -276,7 +276,8 @@
     (match (apply list-records args)
       (() #f)
       ((row) row)
-      (else (throw 'get-many "get returned more than one row")))))
+      (else
+        (throw 'get-many "get returned more than one row" (mapping-record-type mapping) args)))))
 
 (define (map-procedure mapping proc-symbol)
   (define proc-name (symbol->string proc-symbol))

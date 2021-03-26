@@ -103,6 +103,17 @@
       (define charlie (add-user "charlie" #f #f))
       (assert (lset= equal? (list bob charlie) (list-users #:fullname #f))))))
 
+(test get-more-rows
+  (setup)
+  (add-user "alice" "needle" "alice@example.com")
+  (add-user "bob" "needle" "bob@example.com")
+  (catch #t
+    (lambda () (get-user #:fullname "needle") (assert #f))
+    (lambda (key . args)
+      (define message (format #f "~a" args))
+      (assert (string-contains message "fullname"))
+      (assert (string-contains message "needle")))))
+
 ; test automatically assigned id
 
 (define-record-type <document>
